@@ -1,0 +1,89 @@
+#version: '3'   # 컴포즈 파일 버전. 2024.06 기준 명시하면 오류남. 이제 명시할 필요 없어짐
+
+services:    # 컨테이너 정의
+  mysql:
+    platform: linux/x86_64
+    image: mysql:8.0
+    container_name: coupon-mysql
+    environment:   # 환경 변수 설정
+      MYSQL_ROOT_HOST: '%'
+      MYSQL_ROOT_PASSWORD: password
+      MYSQL_DATABASE: voucher_mgmt
+      MYSQL_CHARSET: utf8mb4
+      MYSQL_COLLATION: utf8mb4_unicode_ci
+      MYSQL_ALLOW_EMPTY_PASSWORD: yes
+      TZ: 'Asia/Seoul'
+    command: --lower_case_table_names=1
+    ports:
+      - "3307:3306"  # 호스트의 3307 포트를 컨테이너의 3306 포트로 매핑 (컨테이너 외부:컨테이너 내부) <- 컨테이너 내부는 무조건 3306
+    volumes:
+      # - ./data/:/var/lib/mysql #디렉토리 마운트 설정
+      - ./init.sql:/docker-entrypoint-initdb.d/init.sql #init.sql 실행을 위한 설정. docker-compose
+
+  zookeeper-1:
+    platform: linux/x86_64
+    image: confluentinc/cp-zookeeper:latest
+    container_name: zookeeper-1
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+    ports:
+      - 22181:2181
+    networks:
+      - kafka_net
+
+  kafka-1:
+    platform: linux/x86_64
+    image: confluentinc/cp-kafka:latest
+    container_name: kafka-1
+    depends_on:
+      - zookeeper-1
+    ports:
+      - 29092:29092
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper-1:2181
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka-1:9092,PLAINTEXT_HOST://localhost:29092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+    networks:
+      - kafka_net
+
+  kafka-2:
+    platform: linux/x86_64
+    image: confluentinc/cp-kafka:latest
+    container_name: kafka-2
+    depends_on:
+      - zookeeper-1
+    ports:
+      - 39092:39092
+    environment:
+      KAFKA_BROKER_ID: 2
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper-1:2181
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka-2:9092,PLAINTEXT_HOST://localhost:39092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+    networks:
+      - kafka_net
+
+  kafka-manager:
+    platform: linux/x86_64
+    container_name: kafka-manager
+    image: hlebalbau/kafka-manager:2.0.0.2
+    restart: on-failure
+    depends_on:
+      - zookeeper-1
+    environment:
+      ZK_HOSTS: zookeeper-1:2181
+      APPLICATION_SECRET: "random-secret"
+      KM_ARGS: -Djava.net.preferIPv4Stack=true
+    ports:
+      - "9000:9000"
+    networks:
+      - kafka_net
+
+networks:
+  kafka_net:
+    driver: bridge
